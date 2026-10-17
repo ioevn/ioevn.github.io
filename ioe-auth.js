@@ -41,6 +41,8 @@ const MAX_ATTEMPTS=5;
 let usedAttempts=0;
 let premiumActive=false;
 let paymentDismissed=false;
+let authCheckVersion=0;
+const withTimeout=(promise,ms)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Kết nối Firestore quá thời gian chờ. Vui lòng kiểm tra mạng và tải lại trang.')),ms))]);
 function premiumEndMs(){const v=profile?.premiumUntil;return v?.toMillis?.() || (typeof v==='string'?Date.parse(v):0) || 0;}
 function showPayment(){
  paymentDismissed=false;
@@ -105,6 +107,7 @@ else{
   const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);
   onAuthStateChanged(auth,async user=>{
    if(!user || (presenceUid && presenceUid!==user.uid))stopPresence();
+   const checkVersion=++authCheckVersion;
    me=user;profile=null;window.ioeAllowed=false;paymentDismissed=false;
    if(user)startPresence(user.uid);
    if(!user){hidePayment();$('ioeIdentity').textContent='Chưa đăng nhập';$('ioeLogin').style.display='';$('ioeLogin').disabled=false;show('Đăng nhập Google để thi thử tối đa 5 lượt.');status('');return;}
@@ -113,16 +116,20 @@ else{
    status('Đang kết nối Cloud Firestore…');
    try{
     const ref=doc(db,'ioe_users',user.uid);
-    let snap=await getDoc(ref);
+    let snap=await withTimeout(getDoc(ref),12000);
+    if(checkVersion!==authCheckVersion)return;
     if(!snap.exists()){
      await setDoc(ref,{email:user.email||'',name:user.displayName||'',createdAt:serverTimestamp(),premiumUntil:null});
-     snap=await getDoc(ref);
+     snap=await withTimeout(getDoc(ref),12000);
+     if(checkVersion!==authCheckVersion)return;
     }
     profile=snap.data();
-    const attemptsSnap=await getDoc(doc(db,'ioe_attempts',user.uid));
+    const attemptsSnap=await withTimeout(getDoc(doc(db,'ioe_attempts',user.uid)),12000);
+    if(checkVersion!==authCheckVersion)return;
     usedAttempts=attemptsSnap.exists()?attemptsSnap.data().count:0;
-    refresh();
+    refresh(); // Hết lượt => tự động đóng thông báo và hiện thanh toán.
    }catch(e){
+    if(checkVersion!==authCheckVersion)return;
     console.error('Firestore profile error:',e);
     window.ioeAllowed=false;
     $('ioeLogin').style.display='none';
