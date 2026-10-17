@@ -56,8 +56,8 @@ function showPayment(){
  $('ioeClosePayment').classList.remove('ioe-hide');
  $('ioeGate').classList.remove('ioe-hide');
 }
-function hidePayment(){$('ioePayment').classList.add('ioe-hide');$('ioeClosePayment').classList.add('ioe-hide');$('ioeGateTitle').textContent='Đăng nhập IOE lớp 6';}
-window.ioeClosePayment=()=>{if(!me)return;paymentDismissed=true;hidePayment();$('ioeGate').classList.add('ioe-hide');if(window.ioeExamActive!==true && typeof window.ioeReturnToStart==='function')window.ioeReturnToStart();};
+function hidePayment(){$('ioePayment').classList.add('ioe-hide');$('ioeGateTitle').textContent='Đăng nhập IOE lớp 6';}
+window.ioeClosePayment=()=>{paymentDismissed=true;hidePayment();$('ioeGate').classList.add('ioe-hide');if(window.ioeExamActive!==true && typeof window.ioeReturnToStart==='function')window.ioeReturnToStart();};
 window.ioeCopyBank=()=>navigator.clipboard.writeText('4603205297466').then(()=>{$('ioePayNotice').textContent='Đã sao chép số tài khoản.';}).catch(()=>{$('ioePayNotice').textContent='Số tài khoản: 4603205297466';});
 window.ioeCopyMemo=()=>navigator.clipboard.writeText($('ioePayMemo').textContent).then(()=>{$('ioePayNotice').textContent='Đã sao chép nội dung chuyển khoản.';}).catch(()=>{$('ioePayNotice').textContent='Hãy sao chép nội dung chuyển khoản hiển thị phía trên.';});
 window.ioeCheckPayment=async()=>{if(!me||!db)return;status('Đang kiểm tra trạng thái Premium…');try{const snap=await getDoc(doc(db,'ioe_users',me.uid));if(snap.exists())profile=snap.data();refresh();if(!premiumActive)status('Chưa có Premium đang hoạt động. Vui lòng đợi quản trị viên xác nhận.');}catch(e){status('Không kiểm tra được Premium: '+e.message);}};
