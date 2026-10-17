@@ -19,7 +19,7 @@ function showPayment(){
  const memo=(me?.uid||'').slice(0,6);
  $('ioePayMemo').textContent=memo;
  $('ioePayQr').src='https://img.vietqr.io/image/970405-4603205297466-compact2.png?amount=50000&addInfo='+encodeURIComponent(memo)+'&accountName='+encodeURIComponent('VU THANH TUYEN');
- $('ioeGateTitle').textContent='Thanh toán Premium IOE lớp 6';
+ $('ioeGateTitle').textContent='Thanh toán Premium';
  $('ioeGate').classList.remove('ioe-hide');
 }
 function hidePayment(){$('ioePayment').classList.add('ioe-hide');$('ioeGateTitle').textContent='Đăng nhập IOE lớp 6';}
