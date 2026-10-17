@@ -78,6 +78,7 @@ console.assert(Q.length===2000,'Expected exactly 2000 questions, got '+Q.length)
 let questions=[],current=0,page=0,remaining=1800,timer=null,started=false,selection=[],typed='',chosen=null,finished=false;
 let examDeadline=0,autoReturnTimer=null;
 window.ioeReturnToStart=()=>{if(!started || finished)restart()};
+window.ioeForceReturnToStart=()=>{restart();};
 let ioeStarting=false;
 async function begin(){
  if(ioeStarting)return;

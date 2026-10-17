@@ -1,7 +1,7 @@
 import {firebaseConfig} from './firebase-config.js';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
-import {getFirestore,doc,getDoc,setDoc,addDoc,collection,serverTimestamp,runTransaction,deleteDoc,Timestamp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+import {getFirestore,doc,getDoc,setDoc,addDoc,collection,serverTimestamp,runTransaction,deleteDoc,Timestamp,onSnapshot} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 const $=id=>document.getElementById(id);
 const configured=Boolean(firebaseConfig?.apiKey && firebaseConfig.apiKey!=='REPLACE_ME' && firebaseConfig?.projectId && firebaseConfig?.authDomain);
 let auth,db,me=null,profile=null;
@@ -9,19 +9,39 @@ window.ioeAllowed=false;
 // Một phiên hoạt động cho mỗi UID, thuê khóa 90 giây, gia hạn mỗi 20 giây.
 const SESSION_MS=90000;
 const sessionId=crypto.randomUUID();
-let sessionTimer=null,sessionOwned=false,sessionBusy=false;
+let sessionTimer=null,sessionOwned=false,sessionBusy=false,sessionUnsubscribe=null,displaced=false;
 function sessionRef(uid){return doc(db,'ioe_sessions',uid);}
 async function acquireSession(uid){
  const ref=sessionRef(uid);
  await runTransaction(db,async tx=>{
   const snap=await tx.get(ref);
   const now=Date.now();
-  const v=snap.exists()?snap.data():null;
-  const expires=v?.expiresAt?.toMillis?.()||0;
-  if(v && v.sessionId!==sessionId && expires>now)throw new Error('Tài khoản này đang được sử dụng trên thiết bị hoặc cửa sổ khác. Vui lòng đăng xuất ở nơi đó hoặc thử lại sau khoảng 90 giây.');
+  // Đăng nhập mới luôn chiếm phiên; transaction đảm bảo không ghi đè nửa chừng.
   tx.set(ref,{uid,sessionId,expiresAt:Timestamp.fromMillis(now+SESSION_MS),lastSeen:serverTimestamp()});
  });
  sessionOwned=true;
+ watchSession(uid);
+}
+function watchSession(uid){
+ if(sessionUnsubscribe){sessionUnsubscribe();sessionUnsubscribe=null;}
+ sessionUnsubscribe=onSnapshot(sessionRef(uid),snap=>{
+  if(!sessionOwned||!me||me.uid!==uid)return;
+  if(!snap.exists()||snap.data().sessionId!==sessionId)void kickPreviousSession();
+ },e=>console.warn('Không thể theo dõi phiên:',e));
+}
+async function kickPreviousSession(){
+ if(displaced)return;
+ displaced=true;
+ sessionOwned=false;window.ioeAllowed=false;
+ if(sessionTimer){clearInterval(sessionTimer);sessionTimer=null;}
+ if(sessionUnsubscribe){sessionUnsubscribe();sessionUnsubscribe=null;}
+ stopPresence();
+ if(typeof window.ioeForceReturnToStart==='function')window.ioeForceReturnToStart();
+ else if(typeof window.ioeReturnToStart==='function')window.ioeReturnToStart();
+ try{if(auth)await signOut(auth);}catch(e){console.warn(e);}
+ hidePayment();show('Tài khoản của bạn vừa được đăng nhập ở một nơi khác.');
+ $('ioeGateTitle').textContent='Phiên đăng nhập đã kết thúc';
+ $('ioeLogin').style.display='';status('');
 }
 async function renewSession(){
  if(!sessionOwned||!me||sessionBusy)return;
@@ -34,17 +54,16 @@ async function renewSession(){
    tx.update(ref,{expiresAt:Timestamp.fromMillis(Date.now()+SESSION_MS),lastSeen:serverTimestamp()});
   });
  }catch(e){
-  sessionOwned=false;window.ioeAllowed=false;stopPresence();
-  show('Phiên đăng nhập không còn hợp lệ. '+e.message);
-  status('Vui lòng đăng xuất hoặc tải lại trang để kiểm tra phiên đăng nhập.');
+  await kickPreviousSession();
  }finally{sessionBusy=false;}
 }
 function startSessionHeartbeat(){if(sessionTimer)clearInterval(sessionTimer);sessionTimer=setInterval(renewSession,20000);}
 async function releaseSession(uid){
  if(sessionTimer){clearInterval(sessionTimer);sessionTimer=null;}
+ if(sessionUnsubscribe){sessionUnsubscribe();sessionUnsubscribe=null;}
  const wasOwned=sessionOwned;sessionOwned=false;
  if(!wasOwned||!db||!uid)return;
- try{await runTransaction(db,async tx=>{const ref=sessionRef(uid),snap=await tx.get(ref);if(snap.exists()&&snap.data().sessionId===sessionId)tx.delete(ref);});}catch(e){console.warn('Khóa phiên sẽ tự hết hạn:',e);}
+ try{await runTransaction(db,async tx=>{const ref=sessionRef(uid),snap=await tx.get(ref);if(snap.exists()&&snap.data().sessionId===sessionId)tx.update(ref,{expiresAt:Timestamp.fromMillis(Date.now()+5000),lastSeen:serverTimestamp()});});}catch(e){console.warn('Khóa phiên sẽ tự hết hạn:',e);}
 }
 
 // Online = tab trang thi dang mo va hien thi; sau 90 giay khong heartbeat se tinh offline.
@@ -145,7 +164,7 @@ window.ioeLogin=async()=>{
  catch(e){if(e.code==='auth/popup-closed-by-user')status('Bạn đã đóng cửa sổ đăng nhập. Hãy thử lại.');else status(`Đăng nhập thất bại (${e.code||'unknown'}): ${e.message}`);}
  finally{$('ioeLogin').disabled=false;}
 };
-window.ioeLogout=async()=>{stopPresence();await releaseSession(me?.uid);if(auth)await signOut(auth);};
+window.ioeLogout=async()=>{displaced=false;stopPresence();await releaseSession(me?.uid);if(auth)await signOut(auth);};
 window.ioeShowPayment=()=>{if(!me){show('Vui lòng đăng nhập Google để xem thông tin thanh toán.');return;}showPayment();};
 window.ioeSaveResult=async r=>{if(!db||!me||!window.ioeExamActive)return;try{await addDoc(collection(db,'ioe_results'),{...r,uid:me.uid,createdAt:serverTimestamp()});}catch(e){console.warn('Không thể lưu kết quả:',e);}};
 if(!configured){show('Thiếu thông tin cấu hình Firebase trong firebase-config.js.');status('Hãy kiểm tra apiKey, authDomain và projectId.');$('ioeLogin').disabled=true;}
@@ -155,11 +174,12 @@ else{
   onAuthStateChanged(auth,async user=>{
    if(!user || (presenceUid && presenceUid!==user.uid)){stopPresence();if(sessionTimer)clearInterval(sessionTimer);sessionTimer=null;sessionOwned=false;}
    const checkVersion=++authCheckVersion;
+   if(user)displaced=false;
    me=user;profile=null;window.ioeAllowed=false;paymentDismissed=false;
    $('ioePremiumBadge').classList.add('ioe-hide');
    $('ioeWelcomePremium').classList.add('ioe-hide');$('ioeGateUpgrade').classList.add('ioe-hide');
 
-   if(!user){hidePayment();$('ioeIdentity').textContent='Chưa đăng nhập';$('ioeLogin').style.display='';$('ioeLogin').disabled=false;show('Đăng nhập Google để thi thử tối đa 5 lượt.');status('');return;}
+   if(!user){hidePayment();$('ioeIdentity').textContent='Chưa đăng nhập';$('ioeLogin').style.display='';$('ioeLogin').disabled=false;if(displaced){show('Tài khoản của bạn vừa được đăng nhập ở một nơi khác.');$('ioeGateTitle').textContent='Phiên đăng nhập đã kết thúc';}else{show('Đăng nhập Google để thi thử tối đa 5 lượt.');$('ioeGateTitle').textContent='Đăng nhập IOE lớp 6';}status('');return;}
    $('ioeIdentity').textContent=user.displayName||user.email||'Đã đăng nhập Google';
    show('Đã đăng nhập Google. Đang kiểm tra số lượt thi…');
    status('Đang xác minh phiên đăng nhập và Cloud Firestore…');
@@ -186,8 +206,8 @@ else{
     await releaseSession(user.uid);
     window.ioeAllowed=false;
     $('ioeLogin').style.display='none';
-    show(e.message?.includes('đang được sử dụng')?'Tài khoản đang được sử dụng ở nơi khác.':'Google đã đăng nhập nhưng chưa xác minh được quyền truy cập.');
-    status(`Lỗi Firestore (${e.code||'unknown'}): ${e.message}. Kiểm tra Firestore Database và Security Rules cho ioe_users/{uid}.`);
+    show('Không thể kết nối để xác minh tài khoản. Vui lòng thử lại.');
+    status('');
    }
   },e=>{show('Không thể khôi phục phiên đăng nhập Firebase.');status(`${e.code||'auth'}: ${e.message}`);});
  }catch(e){show('Không khởi tạo được Firebase.');status(e.message);}
