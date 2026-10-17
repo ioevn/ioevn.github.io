@@ -15,16 +15,8 @@ function premiumEndMs(){const v=profile?.premiumUntil;return v?.toMillis?.() || 
 function showPayment(){
  $('ioePayment').classList.remove('ioe-hide');
  $('ioePayEmail').textContent=me?.email||'';
- $('ioePayUid').textContent=me?.uid||'';
- // Ma chuyen khoan 6 ky tu: I + 5 ky tu base36, on dinh theo Firebase UID.
-function ioePaymentCode(uid){
- let hash=2166136261;
- for(let i=0;i<uid.length;i++){
-  hash=Math.imul(hash^uid.charCodeAt(i),16777619)>>>0;
- }
- return 'I'+(hash%(36**5)).toString(36).toUpperCase().padStart(5,'0');
-}
- const memo=ioePaymentCode(me?.uid||'');
+ // Dung chinh xac 6 ky tu dau cua Firebase Auth UID.
+ const memo=(me?.uid||'').slice(0,6);
  $('ioePayMemo').textContent=memo;
  $('ioePayQr').src='https://img.vietqr.io/image/970405-4603205297466-compact2.png?amount=50000&addInfo='+encodeURIComponent(memo)+'&accountName='+encodeURIComponent('VU THANH TUYEN');
  $('ioeGateTitle').textContent='Thanh toán Premium IOE lớp 6';
@@ -33,7 +25,6 @@ function ioePaymentCode(uid){
 function hidePayment(){$('ioePayment').classList.add('ioe-hide');$('ioeGateTitle').textContent='Đăng nhập IOE lớp 6';}
 window.ioeCopyBank=()=>navigator.clipboard.writeText('4603205297466').then(()=>{$('ioePayNotice').textContent='Đã sao chép số tài khoản.';}).catch(()=>{$('ioePayNotice').textContent='Số tài khoản: 4603205297466';});
 window.ioeCopyMemo=()=>navigator.clipboard.writeText($('ioePayMemo').textContent).then(()=>{$('ioePayNotice').textContent='Đã sao chép nội dung chuyển khoản.';}).catch(()=>{$('ioePayNotice').textContent='Hãy sao chép nội dung chuyển khoản hiển thị phía trên.';});
-window.ioeCopyPaymentUid=async()=>{try{await navigator.clipboard.writeText(me?.uid||'');$('ioePayNotice').textContent='Đã sao chép UID. Gửi UID cho quản trị viên để xác nhận thanh toán.';}catch(e){$('ioePayNotice').textContent='Hãy chọn và sao chép UID hiển thị ở trên.';}};
 window.ioeCheckPayment=async()=>{if(!me||!db)return;status('Đang kiểm tra trạng thái Premium…');try{const snap=await getDoc(doc(db,'ioe_users',me.uid));if(snap.exists())profile=snap.data();refresh();if(!premiumActive)status('Chưa có Premium đang hoạt động. Vui lòng đợi quản trị viên xác nhận.');}catch(e){status('Không kiểm tra được Premium: '+e.message);}};
 function refresh(){
  premiumActive=premiumEndMs()>Date.now();
