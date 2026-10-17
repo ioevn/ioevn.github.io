@@ -1,11 +1,40 @@
 import {firebaseConfig} from './firebase-config.js';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
-import {getFirestore,doc,getDoc,setDoc,addDoc,collection,serverTimestamp,runTransaction} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+import {getFirestore,doc,getDoc,setDoc,addDoc,collection,serverTimestamp,runTransaction,deleteDoc} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 const $=id=>document.getElementById(id);
 const configured=Boolean(firebaseConfig?.apiKey && firebaseConfig.apiKey!=='REPLACE_ME' && firebaseConfig?.projectId && firebaseConfig?.authDomain);
 let auth,db,me=null,profile=null;
 window.ioeAllowed=false;
+// Online = tab trang thi dang mo va hien thi; sau 90 giay khong heartbeat se tinh offline.
+let presenceTimer=null, presenceUid=null, presenceBusy=false;
+async function pulsePresence(){
+ if(!db||!me||document.visibilityState!=='visible'||presenceBusy)return;
+ presenceBusy=true;
+ const uid=me.uid;
+ try{
+  await setDoc(doc(db,'ioe_presence',uid),{
+   uid, name:me.displayName||me.email||'Học viên',
+   email:me.email||'', lastSeen:serverTimestamp()
+  });
+ }catch(e){console.warn('Không thể cập nhật trạng thái online:',e)}
+ finally{presenceBusy=false;}
+}
+function stopPresence(){
+ if(presenceTimer){clearInterval(presenceTimer);presenceTimer=null;}
+ const uid=presenceUid;presenceUid=null;
+ if(uid&&db)deleteDoc(doc(db,'ioe_presence',uid)).catch(()=>{});
+}
+function startPresence(uid){
+ if(presenceUid!==uid)stopPresence();
+ presenceUid=uid;
+ pulsePresence();
+ if(!presenceTimer)presenceTimer=setInterval(pulsePresence,30000);
+}
+document.addEventListener('visibilitychange',()=>{
+ if(document.visibilityState==='visible')pulsePresence();
+});
+
 function status(message){$('ioeGateStatus').textContent=message||'';}
 function show(message){$('ioeGate').classList.remove('ioe-hide');$('ioeGateText').textContent=message;}
 const MAX_ATTEMPTS=5;
@@ -60,7 +89,7 @@ window.ioeLogin=async()=>{
  catch(e){if(e.code==='auth/popup-closed-by-user')status('Bạn đã đóng cửa sổ đăng nhập. Hãy thử lại.');else status(`Đăng nhập thất bại (${e.code||'unknown'}): ${e.message}`);}
  finally{$('ioeLogin').disabled=false;}
 };
-window.ioeLogout=async()=>{if(auth)await signOut(auth);};
+window.ioeLogout=async()=>{stopPresence();if(auth)await signOut(auth);};
 window.ioeShowPayment=()=>{if(!me){show('Vui lòng đăng nhập Google để xem thông tin thanh toán.');return;}showPayment();show('Gia hạn Premium để tiếp tục luyện thi.');};
 window.ioeSaveResult=async r=>{if(!db||!me||!window.ioeExamActive)return;try{await addDoc(collection(db,'ioe_results'),{...r,uid:me.uid,createdAt:serverTimestamp()});}catch(e){console.warn('Không thể lưu kết quả:',e);}};
 if(!configured){show('Thiếu thông tin cấu hình Firebase trong firebase-config.js.');status('Hãy kiểm tra apiKey, authDomain và projectId.');$('ioeLogin').disabled=true;}
@@ -68,7 +97,9 @@ else{
  try{
   const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);
   onAuthStateChanged(auth,async user=>{
+   if(!user || (presenceUid && presenceUid!==user.uid))stopPresence();
    me=user;profile=null;window.ioeAllowed=false;
+   if(user)startPresence(user.uid);
    if(!user){hidePayment();$('ioeIdentity').textContent='Chưa đăng nhập';$('ioeLogin').style.display='';$('ioeLogin').disabled=false;show('Đăng nhập Google để thi thử tối đa 5 lượt.');status('');return;}
    $('ioeIdentity').textContent=user.displayName||user.email||'Đã đăng nhập Google';
    show('Đã đăng nhập Google. Đang kiểm tra số lượt thi…');
