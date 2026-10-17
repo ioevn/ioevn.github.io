@@ -1,6 +1,10 @@
-// Tạo dự án Firebase RIÊNG cho IOE và điền cấu hình Web App ở đây.
+
 export const firebaseConfig = {
- apiKey:"REPLACE_ME", authDomain:"REPLACE_ME.firebaseapp.com", projectId:"REPLACE_ME", appId:"REPLACE_ME"
+  apiKey: "DAN_API_KEY_VAO_DAY",
+  authDomain: "ioe-lop6.firebaseapp.com",
+  projectId: "ioe-lop6",
+  appId: "DAN_APP_ID_VAO_DAY"
 };
-// UID Firebase Authentication của người quản trị. KHÔNG phải mật khẩu hoặc khóa bí mật.
-export const ADMIN_UID = "REPLACE_ADMIN_UID";
+
+// UID tài khoản Google quản trị
+export const ADMIN_UID = "DAN_UID_QUAN_TRI_VAO_DAY";
