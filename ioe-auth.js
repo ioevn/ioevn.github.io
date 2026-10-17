@@ -40,8 +40,12 @@ function show(message){$('ioeGate').classList.remove('ioe-hide');$('ioeGateText'
 const MAX_ATTEMPTS=5;
 let usedAttempts=0;
 let premiumActive=false;
+let paymentDismissed=false;
 function premiumEndMs(){const v=profile?.premiumUntil;return v?.toMillis?.() || (typeof v==='string'?Date.parse(v):0) || 0;}
 function showPayment(){
+ paymentDismissed=false;
+ $('ioeLogin').style.display='none';
+ status('');
  $('ioePayment').classList.remove('ioe-hide');
  $('ioePayEmail').textContent=me?.email||'';
  // Dung chinh xac 6 ky tu dau cua Firebase Auth UID.
@@ -53,7 +57,7 @@ function showPayment(){
  $('ioeGate').classList.remove('ioe-hide');
 }
 function hidePayment(){$('ioePayment').classList.add('ioe-hide');$('ioeClosePayment').classList.add('ioe-hide');$('ioeGateTitle').textContent='Đăng nhập IOE lớp 6';}
-window.ioeClosePayment=()=>{if(!me)return;hidePayment();$('ioeGate').classList.add('ioe-hide');if(window.ioeExamActive!==true && typeof window.ioeReturnToStart==='function')window.ioeReturnToStart();};
+window.ioeClosePayment=()=>{if(!me)return;paymentDismissed=true;hidePayment();$('ioeGate').classList.add('ioe-hide');if(window.ioeExamActive!==true && typeof window.ioeReturnToStart==='function')window.ioeReturnToStart();};
 window.ioeCopyBank=()=>navigator.clipboard.writeText('4603205297466').then(()=>{$('ioePayNotice').textContent='Đã sao chép số tài khoản.';}).catch(()=>{$('ioePayNotice').textContent='Số tài khoản: 4603205297466';});
 window.ioeCopyMemo=()=>navigator.clipboard.writeText($('ioePayMemo').textContent).then(()=>{$('ioePayNotice').textContent='Đã sao chép nội dung chuyển khoản.';}).catch(()=>{$('ioePayNotice').textContent='Hãy sao chép nội dung chuyển khoản hiển thị phía trên.';});
 window.ioeCheckPayment=async()=>{if(!me||!db)return;status('Đang kiểm tra trạng thái Premium…');try{const snap=await getDoc(doc(db,'ioe_users',me.uid));if(snap.exists())profile=snap.data();refresh();if(!premiumActive)status('Chưa có Premium đang hoạt động. Vui lòng đợi quản trị viên xác nhận.');}catch(e){status('Không kiểm tra được Premium: '+e.message);}};
@@ -65,7 +69,8 @@ function refresh(){
  $('ioePremium').style.display=premiumActive?'none':'';
  $('ioeLogin').style.display='none';
  if(window.ioeAllowed){hidePayment();$('ioeGate').classList.add('ioe-hide');status('');}
- else{show('Tài khoản đã sử dụng hết 5 lượt thi miễn phí. Vui lòng gia hạn Premium để tiếp tục.');showPayment();status('');}
+ else if(!paymentDismissed){showPayment();status('');}
+ else{hidePayment();$('ioeGate').classList.add('ioe-hide');}
 }
 window.ioeClaimAttempt=async()=>{
  if(!me||!db)throw new Error('Bạn cần đăng nhập Google trước khi thi.');
@@ -92,7 +97,7 @@ window.ioeLogin=async()=>{
  finally{$('ioeLogin').disabled=false;}
 };
 window.ioeLogout=async()=>{stopPresence();if(auth)await signOut(auth);};
-window.ioeShowPayment=()=>{if(!me){show('Vui lòng đăng nhập Google để xem thông tin thanh toán.');return;}showPayment();show('Gia hạn Premium để tiếp tục luyện thi.');};
+window.ioeShowPayment=()=>{if(!me){show('Vui lòng đăng nhập Google để xem thông tin thanh toán.');return;}showPayment();};
 window.ioeSaveResult=async r=>{if(!db||!me||!window.ioeExamActive)return;try{await addDoc(collection(db,'ioe_results'),{...r,uid:me.uid,createdAt:serverTimestamp()});}catch(e){console.warn('Không thể lưu kết quả:',e);}};
 if(!configured){show('Thiếu thông tin cấu hình Firebase trong firebase-config.js.');status('Hãy kiểm tra apiKey, authDomain và projectId.');$('ioeLogin').disabled=true;}
 else{
@@ -100,7 +105,7 @@ else{
   const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);
   onAuthStateChanged(auth,async user=>{
    if(!user || (presenceUid && presenceUid!==user.uid))stopPresence();
-   me=user;profile=null;window.ioeAllowed=false;
+   me=user;profile=null;window.ioeAllowed=false;paymentDismissed=false;
    if(user)startPresence(user.uid);
    if(!user){hidePayment();$('ioeIdentity').textContent='Chưa đăng nhập';$('ioeLogin').style.display='';$('ioeLogin').disabled=false;show('Đăng nhập Google để thi thử tối đa 5 lượt.');status('');return;}
    $('ioeIdentity').textContent=user.displayName||user.email||'Đã đăng nhập Google';
