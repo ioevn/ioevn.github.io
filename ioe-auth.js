@@ -1,22 +1,63 @@
-import {firebaseConfig,ADMIN_UID} from './firebase-config.js';
+import {firebaseConfig} from './firebase-config.js';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {getFirestore,doc,getDoc,setDoc,addDoc,collection,serverTimestamp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
-const configured=firebaseConfig.apiKey!=='REPLACE_ME';
-const gate=document.getElementById('ioeGate'),status=document.getElementById('ioeGateStatus');
-let auth,db,me,profile;
+const $=id=>document.getElementById(id);
+const configured=Boolean(firebaseConfig?.apiKey && firebaseConfig.apiKey!=='REPLACE_ME' && firebaseConfig?.projectId && firebaseConfig?.authDomain);
+let auth,db,me=null,profile=null;
 window.ioeAllowed=false;
-function show(msg){gate.classList.remove('ioe-hide');document.getElementById('ioeGateText').textContent=msg;}
-function refresh(){const now=Date.now(),end=profile?.premiumUntil?.toMillis?.()||0,trial=profile?.createdAt?.toMillis?.()||now;
- const premium=end>now,trialValid=now<trial+5*86400000;window.ioeAllowed=premium||trialValid;
- document.getElementById('ioeIdentity').textContent=`${me.displayName||me.email} • ${premium?'Premium đến '+new Date(end).toLocaleDateString('vi-VN'):trialValid?'Dùng thử còn '+Math.ceil((trial+5*86400000-now)/86400000)+' ngày':'Hết hạn dùng thử'}`;
- document.getElementById('ioePremium').style.display=premium?'none':'';
- if(window.ioeAllowed){gate.classList.add('ioe-hide')}else show('Bạn đã hết thời gian dùng thử. Vui lòng nâng cấp Premium để tiếp tục thi.');
- document.getElementById('ioeLogin').style.display='none';}
-window.ioeLogin=async()=>{if(!configured)return;try{await signInWithPopup(auth,new GoogleAuthProvider())}catch(e){status.textContent=e.message}};
-window.ioeLogout=()=>auth&&signOut(auth);
-window.ioeShowPayment=()=>{alert('Premium IOE: 50.000đ / 30 ngày. Vui lòng liên hệ quản trị viên để nhận thông tin chuyển khoản. Sau khi xác nhận thanh toán, Admin sẽ kích hoạt tài khoản. UID của bạn: '+(me?.uid||'Chưa đăng nhập'));};
-window.ioeSaveResult=async r=>{if(!db||!me||!window.ioeAllowed)return;try{await addDoc(collection(db,'ioe_results'),{...r,uid:me.uid,createdAt:serverTimestamp()})}catch(e){console.warn('Không thể lưu kết quả:',e)}};
-if(!configured){status.textContent='Chưa cấu hình Firebase. Mở firebase-config.js để điền thông tin dự án.';document.getElementById('ioeLogin').disabled=true;}
-else{const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);onAuthStateChanged(auth,async user=>{me=user;if(!user){window.ioeAllowed=false;document.getElementById('ioeIdentity').textContent='Chưa đăng nhập';document.getElementById('ioeLogin').style.display='';show('Đăng nhập Google để dùng thử 5 ngày.');return}
-try{const ref=doc(db,'ioe_users',user.uid),snap=await getDoc(ref);if(!snap.exists()){await setDoc(ref,{email:user.email||'',name:user.displayName||'',createdAt:serverTimestamp(),premiumUntil:null});const retry=await getDoc(ref);profile=retry.data()}else profile=snap.data();refresh()}catch(e){window.ioeAllowed=false;show('Không thể xác minh quyền truy cập. Kiểm tra Firestore Rules và kết nối mạng. '+e.message)}})}
+function status(message){$('ioeGateStatus').textContent=message||'';}
+function show(message){$('ioeGate').classList.remove('ioe-hide');$('ioeGateText').textContent=message;}
+function refresh(){
+ const now=Date.now();
+ const end=profile?.premiumUntil?.toMillis?.()||0;
+ const trial=profile?.createdAt?.toMillis?.()||0;
+ const premium=end>now,trialValid=trial>0&&now<trial+5*86400000;
+ window.ioeAllowed=premium||trialValid;
+ $('ioeIdentity').textContent=`${me.displayName||me.email||'Học viên'} • ${premium?'Premium đến '+new Date(end).toLocaleDateString('vi-VN'):trialValid?'Dùng thử còn '+Math.ceil((trial+5*86400000-now)/86400000)+' ngày':'Hết hạn dùng thử'}`;
+ $('ioePremium').style.display=premium?'none':'';
+ $('ioeLogin').style.display='none';
+ if(window.ioeAllowed){$('ioeGate').classList.add('ioe-hide');status('');}
+ else show('Bạn đã hết thời gian dùng thử hoặc hồ sơ chưa có ngày bắt đầu hợp lệ. Vui lòng liên hệ quản trị viên.');
+}
+window.ioeLogin=async()=>{
+ if(!configured)return;
+ $('ioeLogin').disabled=true;
+ status('Đang mở cửa sổ đăng nhập Google…');
+ try{await signInWithPopup(auth,new GoogleAuthProvider());status('Google đã xác thực. Đang kiểm tra hồ sơ Firestore…');}
+ catch(e){if(e.code==='auth/popup-closed-by-user')status('Bạn đã đóng cửa sổ đăng nhập. Hãy thử lại.');else status(`Đăng nhập thất bại (${e.code||'unknown'}): ${e.message}`);}
+ finally{$('ioeLogin').disabled=false;}
+};
+window.ioeLogout=async()=>{if(auth)await signOut(auth);};
+window.ioeShowPayment=()=>alert('Premium IOE: 50.000đ / 30 ngày. Liên hệ quản trị viên để nhận thông tin chuyển khoản. UID: '+(me?.uid||'Chưa đăng nhập'));
+window.ioeSaveResult=async r=>{if(!db||!me||!window.ioeAllowed)return;try{await addDoc(collection(db,'ioe_results'),{...r,uid:me.uid,createdAt:serverTimestamp()});}catch(e){console.warn('Không thể lưu kết quả:',e);}};
+if(!configured){show('Thiếu thông tin cấu hình Firebase trong firebase-config.js.');status('Hãy kiểm tra apiKey, authDomain và projectId.');$('ioeLogin').disabled=true;}
+else{
+ try{
+  const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);
+  onAuthStateChanged(auth,async user=>{
+   me=user;profile=null;window.ioeAllowed=false;
+   if(!user){$('ioeIdentity').textContent='Chưa đăng nhập';$('ioeLogin').style.display='';$('ioeLogin').disabled=false;show('Đăng nhập Google để dùng thử 5 ngày.');status('');return;}
+   $('ioeIdentity').textContent=user.displayName||user.email||'Đã đăng nhập Google';
+   show('Đã đăng nhập Google. Đang xác minh thời hạn dùng thử…');
+   status('Đang kết nối Cloud Firestore…');
+   try{
+    const ref=doc(db,'ioe_users',user.uid);
+    let snap=await getDoc(ref);
+    if(!snap.exists()){
+     await setDoc(ref,{email:user.email||'',name:user.displayName||'',createdAt:serverTimestamp(),premiumUntil:null});
+     snap=await getDoc(ref);
+    }
+    profile=snap.data();
+    if(!profile?.createdAt?.toMillis){throw new Error('Hồ sơ thiếu createdAt hợp lệ. Kiểm tra dữ liệu Firestore.');}
+    refresh();
+   }catch(e){
+    console.error('Firestore profile error:',e);
+    window.ioeAllowed=false;
+    $('ioeLogin').style.display='none';
+    show('Google đã đăng nhập thành công nhưng chưa xác minh được quyền truy cập Firestore.');
+    status(`Lỗi Firestore (${e.code||'unknown'}): ${e.message}. Kiểm tra Firestore Database và Security Rules cho ioe_users/{uid}.`);
+   }
+  },e=>{show('Không thể khôi phục phiên đăng nhập Firebase.');status(`${e.code||'auth'}: ${e.message}`);});
+ }catch(e){show('Không khởi tạo được Firebase.');status(e.message);}
+}
