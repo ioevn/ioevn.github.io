@@ -71,6 +71,7 @@ function refresh(){
  const remain=Math.max(0,MAX_ATTEMPTS-usedAttempts);
  $('ioeIdentity').textContent=`${me.displayName||me.email||'Học viên'} • ${premiumActive?'Premium đến '+new Date(premiumEndMs()).toLocaleDateString('vi-VN'):'Còn '+remain+'/5 lượt miễn phí'}`;
  $('ioePremium').style.display=premiumActive?'none':'';
+ $('ioePremiumBadge').classList.toggle('ioe-hide',!premiumActive);
  $('ioeWelcomePremium').classList.toggle('ioe-hide',!me||premiumActive);
  $('ioeGateUpgrade').classList.add('ioe-hide');
  $('ioeLogin').style.display='none';
@@ -113,6 +114,7 @@ else{
    if(!user || (presenceUid && presenceUid!==user.uid))stopPresence();
    const checkVersion=++authCheckVersion;
    me=user;profile=null;window.ioeAllowed=false;paymentDismissed=false;
+   $('ioePremiumBadge').classList.add('ioe-hide');
    $('ioeWelcomePremium').classList.add('ioe-hide');$('ioeGateUpgrade').classList.add('ioe-hide');
    if(user)startPresence(user.uid);
    if(!user){hidePayment();$('ioeIdentity').textContent='Chưa đăng nhập';$('ioeLogin').style.display='';$('ioeLogin').disabled=false;show('Đăng nhập Google để thi thử tối đa 5 lượt.');status('');return;}
