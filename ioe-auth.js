@@ -10,17 +10,44 @@ function status(message){$('ioeGateStatus').textContent=message||'';}
 function show(message){$('ioeGate').classList.remove('ioe-hide');$('ioeGateText').textContent=message;}
 const MAX_ATTEMPTS=5;
 let usedAttempts=0;
+let premiumActive=false;
+function premiumEndMs(){const v=profile?.premiumUntil;return v?.toMillis?.() || (typeof v==='string'?Date.parse(v):0) || 0;}
+function showPayment(){
+ $('ioePayment').classList.remove('ioe-hide');
+ $('ioePayEmail').textContent=me?.email||'';
+ $('ioePayUid').textContent=me?.uid||'';
+ // Ma chuyen khoan 6 ky tu: I + 5 ky tu base36, on dinh theo Firebase UID.
+function ioePaymentCode(uid){
+ let hash=2166136261;
+ for(let i=0;i<uid.length;i++){
+  hash=Math.imul(hash^uid.charCodeAt(i),16777619)>>>0;
+ }
+ return 'I'+(hash%(36**5)).toString(36).toUpperCase().padStart(5,'0');
+}
+ const memo=ioePaymentCode(me?.uid||'');
+ $('ioePayMemo').textContent=memo;
+ $('ioePayQr').src='https://img.vietqr.io/image/970405-4603205297466-compact2.png?amount=50000&addInfo='+encodeURIComponent(memo)+'&accountName='+encodeURIComponent('VU THANH TUYEN');
+ $('ioeGateTitle').textContent='Thanh toán Premium IOE lớp 6';
+ $('ioeGate').classList.remove('ioe-hide');
+}
+function hidePayment(){$('ioePayment').classList.add('ioe-hide');$('ioeGateTitle').textContent='Đăng nhập IOE lớp 6';}
+window.ioeCopyBank=()=>navigator.clipboard.writeText('4603205297466').then(()=>{$('ioePayNotice').textContent='Đã sao chép số tài khoản.';}).catch(()=>{$('ioePayNotice').textContent='Số tài khoản: 4603205297466';});
+window.ioeCopyMemo=()=>navigator.clipboard.writeText($('ioePayMemo').textContent).then(()=>{$('ioePayNotice').textContent='Đã sao chép nội dung chuyển khoản.';}).catch(()=>{$('ioePayNotice').textContent='Hãy sao chép nội dung chuyển khoản hiển thị phía trên.';});
+window.ioeCopyPaymentUid=async()=>{try{await navigator.clipboard.writeText(me?.uid||'');$('ioePayNotice').textContent='Đã sao chép UID. Gửi UID cho quản trị viên để xác nhận thanh toán.';}catch(e){$('ioePayNotice').textContent='Hãy chọn và sao chép UID hiển thị ở trên.';}};
+window.ioeCheckPayment=async()=>{if(!me||!db)return;status('Đang kiểm tra trạng thái Premium…');try{const snap=await getDoc(doc(db,'ioe_users',me.uid));if(snap.exists())profile=snap.data();refresh();if(!premiumActive)status('Chưa có Premium đang hoạt động. Vui lòng đợi quản trị viên xác nhận.');}catch(e){status('Không kiểm tra được Premium: '+e.message);}};
 function refresh(){
- window.ioeAllowed=!!me && usedAttempts<MAX_ATTEMPTS;
+ premiumActive=premiumEndMs()>Date.now();
+ window.ioeAllowed=!!me && (premiumActive||usedAttempts<MAX_ATTEMPTS);
  const remain=Math.max(0,MAX_ATTEMPTS-usedAttempts);
- $('ioeIdentity').textContent=`${me.displayName||me.email||'Học viên'} • Còn ${remain}/5 lượt thi`;
- $('ioePremium').style.display='none';
+ $('ioeIdentity').textContent=`${me.displayName||me.email||'Học viên'} • ${premiumActive?'Premium đến '+new Date(premiumEndMs()).toLocaleDateString('vi-VN'):'Còn '+remain+'/5 lượt miễn phí'}`;
+ $('ioePremium').style.display=premiumActive?'none':'';
  $('ioeLogin').style.display='none';
- if(window.ioeAllowed){$('ioeGate').classList.add('ioe-hide');status('');}
- else show('Tài khoản đã sử dụng hết 5 lượt thi thử.');
+ if(window.ioeAllowed){hidePayment();$('ioeGate').classList.add('ioe-hide');status('');}
+ else{show('Tài khoản đã sử dụng hết 5 lượt thi miễn phí. Vui lòng gia hạn Premium để tiếp tục.');showPayment();status('');}
 }
 window.ioeClaimAttempt=async()=>{
  if(!me||!db)throw new Error('Bạn cần đăng nhập Google trước khi thi.');
+ if(premiumEndMs()>Date.now()){premiumActive=true;return 'Premium';}
  const uid=me.uid;
  const ref=doc(db,'ioe_attempts',uid);
  const newCount=await runTransaction(db,async transaction=>{
@@ -43,7 +70,7 @@ window.ioeLogin=async()=>{
  finally{$('ioeLogin').disabled=false;}
 };
 window.ioeLogout=async()=>{if(auth)await signOut(auth);};
-window.ioeShowPayment=()=>alert('Mỗi tài khoản được thi thử tối đa 5 lần.');
+window.ioeShowPayment=()=>{if(!me){show('Vui lòng đăng nhập Google để xem thông tin thanh toán.');return;}showPayment();show('Gia hạn Premium để tiếp tục luyện thi.');};
 window.ioeSaveResult=async r=>{if(!db||!me||!window.ioeExamActive)return;try{await addDoc(collection(db,'ioe_results'),{...r,uid:me.uid,createdAt:serverTimestamp()});}catch(e){console.warn('Không thể lưu kết quả:',e);}};
 if(!configured){show('Thiếu thông tin cấu hình Firebase trong firebase-config.js.');status('Hãy kiểm tra apiKey, authDomain và projectId.');$('ioeLogin').disabled=true;}
 else{
@@ -51,7 +78,7 @@ else{
   const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);
   onAuthStateChanged(auth,async user=>{
    me=user;profile=null;window.ioeAllowed=false;
-   if(!user){$('ioeIdentity').textContent='Chưa đăng nhập';$('ioeLogin').style.display='';$('ioeLogin').disabled=false;show('Đăng nhập Google để thi thử tối đa 5 lượt.');status('');return;}
+   if(!user){hidePayment();$('ioeIdentity').textContent='Chưa đăng nhập';$('ioeLogin').style.display='';$('ioeLogin').disabled=false;show('Đăng nhập Google để thi thử tối đa 5 lượt.');status('');return;}
    $('ioeIdentity').textContent=user.displayName||user.email||'Đã đăng nhập Google';
    show('Đã đăng nhập Google. Đang kiểm tra số lượt thi…');
    status('Đang kết nối Cloud Firestore…');
