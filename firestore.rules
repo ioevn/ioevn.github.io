@@ -1,0 +1,18 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function signedIn() { return request.auth != null; }
+  // THAY UID_ADMIN_THAT bằng UID tài khoản quản trị từ Firebase Authentication.
+  function isAdmin() { return signedIn() && request.auth.uid == 'UID_ADMIN_THAT'; }
+  match /ioe_users/{uid} {
+   allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+   allow create: if signedIn() && request.auth.uid == uid && request.resource.data.keys().hasOnly(['email','name','createdAt','premiumUntil']) && request.resource.data.premiumUntil == null && request.resource.data.createdAt == request.time;
+   allow update, delete: if isAdmin();
+  }
+  match /ioe_results/{id} {
+   allow read: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+   allow create: if signedIn() && request.resource.data.uid == request.auth.uid && request.resource.data.keys().hasOnly(['uid','score','correct','answered','total','finishedAt','createdAt']) && request.resource.data.createdAt == request.time;
+   allow update, delete: if false;
+  }
+ }
+}
